@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <ESP32Encoder.h>
+#include <Wire.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <Wire.h>
@@ -26,14 +27,8 @@ const int BUTTON = 4;
 const int COUNTS_PER_REV = 1320; // for full quad, reduction ratio 30 with 11 ticks per rev
 const float WHEEL_DIAMETER = 60.0; // in mm, banebots 2 3/8in wheels
 const float TRACK_WIDTH = 149.5; // in mm, distance between the two wheels
-const int MIN_SPEED = 17; // pwm value to overcome static friction out of 255
 
 /* Objects */
-Adafruit_MPU6050 mpu;
-double forwardInput, forwardOutput, forwardSetpoint;
-double turnInput, turnOutput, turnSetpoint;
-PID forwardPid(&forwardInput, &forwardOutput, &forwardSetpoint, 2.0, 0, 0, DIRECT);
-PID turnPid(&turnInput, &turnOutput, &turnSetpoint, 1, 0, 0, DIRECT);
 ESP32Encoder maEnc;
 ESP32Encoder mbEnc;
 
@@ -66,17 +61,7 @@ void move_right(int speed) {
   }
   analogWrite(MA_PWM, speed);
 }
-// go forward 250mm
-void forward_half() {
-  while (true) {
-    forwardSetpoint = 250;
-    forwardInput = (maEnc.getCount() + mbEnc.getCount()) / 2.0 / COUNTS_PER_REV * WHEEL_DIAMETER * PI;
-    forwardPid.Compute();
-    move_left(forwardOutput);
-    move_right(forwardOutput);
-}
 
-  }
 void setup() {
   Serial.begin(115200);
 
@@ -89,44 +74,26 @@ void setup() {
   pinMode(MB_IN2, OUTPUT);
   pinMode(BUTTON, INPUT_PULLUP);
 
-  // Initialize pid
-  forwardPid.SetMode(AUTOMATIC);
-  forwardPid.SetOutputLimits(-255, 255);
-  forwardPid.SetSampleTime(10);
-
-  // Initialize MPU6050
-  // if (!mpu.begin()) {
-  //   Serial.println("Failed to find MPU6050 chip");
-  //   while (1) {
-  //     delay(10);
-  //   }
-  // }
-  // Serial.println("MPU6050 Found!");
-
   // Initialize encoders
   maEnc.attachFullQuad(MA_ENC_B, MA_ENC_A);
   mbEnc.attachFullQuad(MB_ENC_A, MB_ENC_B);
-
-  // forward_half();
 }
 
 void loop() {
-  forwardSetpoint = 250;
-  forwardInput = (maEnc.getCount() + mbEnc.getCount()) / 2.0 / COUNTS_PER_REV * WHEEL_DIAMETER * PI;
-  forwardPid.Compute();
+  // set speed based on keyboard input
+  if (Serial.available() > 0) {
+    String input = Serial.readStringUntil('\n');
+    int speed = input.toInt();
 
-  // proportional control to go straight
-  float kP = 10.0;
-  float straightInput = (maEnc.getCount() - mbEnc.getCount()) / 2.0 / COUNTS_PER_REV * WHEEL_DIAMETER * PI;
-  float straightOutput = kP * straightInput;
+    // Print the input value to the serial monitor
+    Serial.print("Input speed: ");
+    Serial.println(speed);
 
-  // Serial.println("Straight error = " + String(straightInput));
+    // Set the motor speed
+    move_left(speed);
+    move_right(speed);
+  }
 
-  move_left(forwardOutput + straightOutput);
-  move_right(forwardOutput - straightOutput);
-  
-  //Serial.println("Encoder count = " + String((int32_t)mbEnc.getCount()) + " " + String((int32_t)maEnc.getCount()));
-  Serial.print("PID input:" + String(forwardInput));
-  Serial.print(" Pid error:" + String(forwardSetpoint - forwardInput));
-  Serial.println("PID output:" + String(forwardOutput));
+  // Add a small delay
+  delay(10);
 }
