@@ -212,7 +212,7 @@ bool start_moving = false;
 void loop() {
 
   // press button to move
-  if (digitalRead(BUTTON) == LOW) {
+  if (digitalRead(BUTTON) == LOW && !start_moving) {
     start_moving = true;
     maEnc.clearCount();
     mbEnc.clearCount();
