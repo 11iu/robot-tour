@@ -7,7 +7,7 @@
 
 /* Info */
 // Motor A is the right motor (when seen from the back), Motor B is the left motor
-// 
+// Error codes: fast blink = MPU6050 not found, 
 
 /* Pins */
 const int MA_ENC_A = 36;
@@ -21,27 +21,39 @@ const int MB_PWM = 13;
 const int MB_IN2 = 26;
 const int MB_IN1 = 27;
 const int BUTTON = 4;
+const int LED_BUILTIN = 2;
 
 /* Constants */
 const int COUNTS_PER_REV = 1320; // for full quad, reduction ratio 30 with 11 ticks per rev
 const float WHEEL_DIAMETER = 60.0; // in mm, banebots 2 3/8in wheels
-const float TRACK_WIDTH = 149.5; // in mm, distance between the two wheels
+const float TRACK_WIDTH = 142.5; // in mm, distance between the two wheels, tested value - actual 149
 const int MIN_SPEED = 17; // pwm value to overcome static friction out of 255
+const float SAME_FORWARD_KP = 64.0; // tuned, 128 oscillation
+const float SAME_TURN_KP = 8.0; // tuned, 32 has weird turning
+const float FORWARD_CUTOFF = 2; // int mm, threshold to stop moving forward
+const float TURN_CUTOFF = 0.5; // in mm, threshold to stop turnin
+//TODO: add time cutoff for forward and turn
 
 /* Objects */
 Adafruit_MPU6050 mpu;
 double forwardInput, forwardOutput, forwardSetpoint;
 double turnInput, turnOutput, turnSetpoint;
-PID forwardPid(&forwardInput, &forwardOutput, &forwardSetpoint, 2.0, 0, 0, DIRECT);
-PID turnPid(&turnInput, &turnOutput, &turnSetpoint, 1, 0, 0, DIRECT);
+PID forwardPid(&forwardInput, &forwardOutput, &forwardSetpoint, 2.0, 0.0, 0.0, DIRECT);
+PID turnPid(&turnInput, &turnOutput, &turnSetpoint, 2.0, 0.0, 0.0, DIRECT);
 ESP32Encoder maEnc;
 ESP32Encoder mbEnc;
 
-void move_left(int speed) {
-  if (speed > 255) speed = 255;
-  if (speed < -255) speed = -255;
+void reset_encoders() {
+  maEnc.clearCount();
+  mbEnc.clearCount();
+}
 
-  if (speed > 0) {
+void move_left(float speed) {
+
+  if (fabs(speed) < 0.01) { // Use a small threshold to compare floats
+    digitalWrite(MB_IN1, LOW);
+    digitalWrite(MB_IN2, LOW);
+  } else if (speed > 0) {
     digitalWrite(MB_IN1, HIGH);
     digitalWrite(MB_IN2, LOW);
   } else {
@@ -49,14 +61,22 @@ void move_left(int speed) {
     digitalWrite(MB_IN2, HIGH);
     speed *= -1;
   }
-  analogWrite(MB_PWM, speed);
+
+  int speed_i = (int) roundf(speed); // deal with -0.5 case where int cast rounding does not work
+
+  // clamp the speed
+  if (speed_i < MIN_SPEED) speed_i = MIN_SPEED;
+  if (speed_i > 255) speed_i = 255;
+
+  analogWrite(MB_PWM, speed_i);
 }
 
-void move_right(int speed) {
-  if (speed > 255) speed = 255;
-  if (speed < -255) speed = -255;
+void move_right(float speed) {
 
-  if (speed > 0) {
+  if (fabs(speed) < 0.01) {
+    digitalWrite(MA_IN1, LOW);
+    digitalWrite(MA_IN2, LOW);
+  } else if (speed > 0) {
     digitalWrite(MA_IN1, LOW);
     digitalWrite(MA_IN2, HIGH);
   } else {
@@ -64,19 +84,93 @@ void move_right(int speed) {
     digitalWrite(MA_IN2, LOW);
     speed *= -1;
   }
-  analogWrite(MA_PWM, speed);
-}
-// go forward 250mm
-void forward_half() {
-  while (true) {
-    forwardSetpoint = 250;
-    forwardInput = (maEnc.getCount() + mbEnc.getCount()) / 2.0 / COUNTS_PER_REV * WHEEL_DIAMETER * PI;
-    forwardPid.Compute();
-    move_left(forwardOutput);
-    move_right(forwardOutput);
+
+  int speed_i = (int) roundf(speed);
+
+  // clamp the speed
+  if (speed_i < MIN_SPEED) speed_i = MIN_SPEED;
+  if (speed_i > 255) speed_i = 255;
+
+  analogWrite(MA_PWM, speed_i);
 }
 
-  }
+// go forward 250mm
+void forward_half() {
+  reset_encoders();
+  forwardSetpoint = 250.0;
+  do {
+    forwardInput = (maEnc.getCount() + mbEnc.getCount()) / 2.0 / COUNTS_PER_REV * WHEEL_DIAMETER * PI;
+    forwardPid.Compute();
+
+    // proportional control to go straight
+    float sameForwardInput = (maEnc.getCount() - mbEnc.getCount()) / 2.0 / COUNTS_PER_REV * WHEEL_DIAMETER * PI;
+    float sameForwardOutput = SAME_FORWARD_KP * sameForwardInput;
+
+    move_left(forwardOutput + sameForwardOutput);
+    move_right(forwardOutput - sameForwardOutput);
+
+    Serial.print("lEnc:" + String((int32_t)mbEnc.getCount()));
+    Serial.print(" rEnc:" + String((int32_t)maEnc.getCount()));
+    Serial.print(" Straight er:" + String(sameForwardInput, 2));
+    Serial.print(" PID in:" + String(forwardInput, 2));
+    Serial.print(" Pid er:" + String(forwardSetpoint - forwardInput, 2));
+    Serial.println(" PID ou:" + String(forwardOutput, 2));
+    delay(1); // ensure loop takes longer than pid update rate
+  } while (abs(forwardSetpoint - forwardInput) > FORWARD_CUTOFF);
+  move_left(0);
+  move_right(0);
+}
+
+// based on encoder only, p to maintain same motor rotation amounts
+void turn_right() {
+  reset_encoders();
+  turnSetpoint = TRACK_WIDTH * PI / 4.0;
+  do {
+    turnInput = (-maEnc.getCount() + mbEnc.getCount()) / 2.0 / COUNTS_PER_REV * WHEEL_DIAMETER * PI;
+    turnPid.Compute();
+
+    // proportional control for both motors to turn the same amount
+    float sameTurnInput = (maEnc.getCount() + mbEnc.getCount()) / 2.0 / COUNTS_PER_REV * WHEEL_DIAMETER * PI;
+    float sameTurnOutput = SAME_TURN_KP * sameTurnInput;
+
+    move_left(turnOutput - sameTurnOutput);
+    move_right(-turnOutput - sameTurnOutput);
+
+    Serial.print("Same er:" + String(sameTurnInput, 2));
+    Serial.print(" PID in:" + String(turnInput, 2));
+    Serial.print(" PID er:" + String(turnSetpoint - turnInput, 2));
+    Serial.println(" PID ou:" + String(turnOutput, 2));
+    delay(1); // ensure loop takes longer than pid update rate
+  } while (abs(turnSetpoint - turnInput) > TURN_CUTOFF);
+  move_left(0);
+  move_right(0);
+}
+
+// based on encoder only, p to maintain same motor rotation amounts
+void turn_left() {
+  reset_encoders();
+  turnSetpoint = TRACK_WIDTH * PI / 4.0;
+  do {
+    turnInput = (maEnc.getCount() - mbEnc.getCount()) / 2.0 / COUNTS_PER_REV * WHEEL_DIAMETER * PI;
+    turnPid.Compute();
+
+    // proportional control for both motors to turn the same amount
+    float sameTurnInput = (maEnc.getCount() + mbEnc.getCount()) / 2.0 / COUNTS_PER_REV * WHEEL_DIAMETER * PI;
+    float sameTurnOutput = SAME_TURN_KP * sameTurnInput;
+
+    move_left(-turnOutput - sameTurnOutput);
+    move_right(turnOutput - sameTurnOutput);
+
+    // Serial.print("Same er:" + String(sameTurnInput, 2));
+    // Serial.print(" PID in:" + String(turnInput, 2));
+    // Serial.print(" PID er:" + String(turnSetpoint - turnInput, 2));
+    // Serial.println(" PID ou:" + String(turnOutput, 2));
+    delay(1); // ensure loop takes longer than pid update rate
+  } while (abs(turnSetpoint - turnInput) > TURN_CUTOFF);
+  move_left(0);
+  move_right(0);
+}
+
 void setup() {
   Serial.begin(115200);
 
@@ -88,45 +182,61 @@ void setup() {
   pinMode(MB_IN1, OUTPUT);
   pinMode(MB_IN2, OUTPUT);
   pinMode(BUTTON, INPUT_PULLUP);
+  pinMode(LED_BUILTIN, OUTPUT);
 
   // Initialize pid
   forwardPid.SetMode(AUTOMATIC);
   forwardPid.SetOutputLimits(-255, 255);
-  forwardPid.SetSampleTime(10);
+  forwardPid.SetSampleTime(1); // don't increase or breaks
+  turnPid.SetMode(AUTOMATIC);
+  turnPid.SetOutputLimits(-255, 255);
+  turnPid.SetSampleTime(1); // don't increase or breaks
 
-  // Initialize MPU6050
-  // if (!mpu.begin()) {
-  //   Serial.println("Failed to find MPU6050 chip");
-  //   while (1) {
-  //     delay(10);
-  //   }
-  // }
-  // Serial.println("MPU6050 Found!");
-
+  //Initialize MPU6050
+  if (!mpu.begin()) {
+    Serial.println("Failed to find MPU6050 chip");
+    while (1) {
+      digitalWrite(LED_BUILTIN, HIGH);
+      delay(300);
+      digitalWrite(LED_BUILTIN, LOW);
+      delay(300);
+    }
+  }
   // Initialize encoders
   maEnc.attachFullQuad(MA_ENC_B, MA_ENC_A);
   mbEnc.attachFullQuad(MB_ENC_A, MB_ENC_B);
-
-  // forward_half();
 }
 
+bool start_moving = false;
+
 void loop() {
-  forwardSetpoint = 250;
-  forwardInput = (maEnc.getCount() + mbEnc.getCount()) / 2.0 / COUNTS_PER_REV * WHEEL_DIAMETER * PI;
-  forwardPid.Compute();
 
-  // proportional control to go straight
-  float kP = 10.0;
-  float straightInput = (maEnc.getCount() - mbEnc.getCount()) / 2.0 / COUNTS_PER_REV * WHEEL_DIAMETER * PI;
-  float straightOutput = kP * straightInput;
+  // press button to move
+  if (digitalRead(BUTTON) == LOW) {
+    start_moving = true;
+    maEnc.clearCount();
+    mbEnc.clearCount();
+    move_left(0);
+    move_right(0);
+    digitalWrite(LED_BUILTIN, HIGH);
+    delay(1000); // time for finger to leave
+  }
 
-  // Serial.println("Straight error = " + String(straightInput));
-
-  move_left(forwardOutput + straightOutput);
-  move_right(forwardOutput - straightOutput);
+  if (start_moving) {
+    // forward_half();
+    // delay(1000);
+    // turn_right();
+    // delay(1000);
+    // turn_right();
+    // delay(1000);
+    // forward_half();
+    // delay(1000);
+    // turn_left();
+    // delay(1000);
+    // turn_left();
+    // delay(1000);
+    turn_left();
+    start_moving = false;
+  }
   
-  //Serial.println("Encoder count = " + String((int32_t)mbEnc.getCount()) + " " + String((int32_t)maEnc.getCount()));
-  Serial.print("PID input:" + String(forwardInput));
-  Serial.print(" Pid error:" + String(forwardSetpoint - forwardInput));
-  Serial.println("PID output:" + String(forwardOutput));
 }

@@ -26,6 +26,7 @@ const int BUTTON = 4;
 const int COUNTS_PER_REV = 1320; // for full quad, reduction ratio 30 with 11 ticks per rev
 const float WHEEL_DIAMETER = 60.0; // in mm, banebots 2 3/8in wheels
 const float TRACK_WIDTH = 149.5; // in mm, distance between the two wheels
+const int MIN_SPEED = 17; // pwm value to overcome static friction out of 255
 
 /* Objects */
 Adafruit_MPU6050 mpu;
