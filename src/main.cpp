@@ -49,35 +49,6 @@ PID turnGyroPid(&turnGyroInput, &turnGyroOutput, &turnGyroSetpoint, 4.0, 0.0, 0.
 ESP32Encoder maEnc;
 ESP32Encoder mbEnc;
 
-TaskHandle_t GyroTask;
-TaskHandle_t CommTask;
-SemaphoreHandle_t angleMutex;
-
-// Function to handle gyro integration in a separate task
-void gyroTask(void *pvParameters) {
-  sensors_event_t a, g, temp;
-  while (true) {
-    mpu.getEvent(&a, &g, &temp);
-    xSemaphoreTake(angleMutex, portMAX_DELAY);
-    angle += g.gyro.z;
-    xSemaphoreGive(angleMutex);
-    delay(1); // Small delay to prevent task from hogging the CPU
-  }
-}
-
-// Function to handle communication in a separate task
-void commTask(void *pvParameters) {
-  while (true) {
-    // Handle communication (e.g., Wi-Fi, Bluetooth, Serial)
-    // Example: Serial communication
-    if (Serial.available()) {
-      String message = Serial.readString();
-      // Process the message
-    }
-    delay(10); // Adjust delay as needed
-  }
-}
-
 void reset_encoders() {
   maEnc.clearCount();
   mbEnc.clearCount();
@@ -267,31 +238,6 @@ void setup() {
   // Initialize encoders
   maEnc.attachFullQuad(MA_ENC_B, MA_ENC_A);
   mbEnc.attachFullQuad(MB_ENC_A, MB_ENC_B);
-
-  // Create a mutex for the angle variable
-  angleMutex = xSemaphoreCreateMutex();
-
-  // Create a task for gyro integration on core 1
-  xTaskCreatePinnedToCore(
-    gyroTask,   // Function to be called
-    "GyroTask", // Name of the task
-    10000,      // Stack size (bytes)
-    NULL,       // Parameter to pass
-    1,          // Task priority
-    &GyroTask,  // Task handle
-    1           // Core to run the task on (0 or 1)
-  );
-
-  // Create a task for communication handling on core 1
-  xTaskCreatePinnedToCore(
-    commTask,   // Function to be called
-    "CommTask", // Name of the task
-    10000,      // Stack size (bytes)
-    NULL,       // Parameter to pass
-    1,          // Task priority
-    &CommTask,  // Task handle
-    1           // Core to run the task on (0 or 1)
-  );
 }
 
 bool start_moving = false;
@@ -310,24 +256,8 @@ void loop() {
   }
 
   if (start_moving) {
-    // Access the angle variable safely
-    xSemaphoreTake(angleMutex, portMAX_DELAY);
-    float currentAngle = angle;
-    xSemaphoreGive(angleMutex);
 
-    // Use currentAngle as needed
-    // forward_half();
-    // delay(1000);
-    // turn_right();
-    // delay(1000);
-    // turn_right();
-    // delay(1000);
-    // forward_half();
-    // delay(1000);
-    // turn_left();
-    // delay(1000);
-    // turn_left();
-    // delay(1000);
+    forward_half();
     turn_left();
     start_moving = false;
   }
