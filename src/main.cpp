@@ -147,6 +147,35 @@ void forward_half()
   move_right(0);
 }
 
+// go backward 250mm
+void backward_half()
+{
+  reset_encoders();
+  forwardSetpoint = -250.0;
+  do
+  {
+    forwardInput = (maEnc.getCount() + mbEnc.getCount()) / 2.0 / COUNTS_PER_REV * WHEEL_DIAMETER * PI;
+    forwardPid.Compute();
+
+    // proportional control to go straight
+    float sameForwardInput = (maEnc.getCount() - mbEnc.getCount()) / 2.0 / COUNTS_PER_REV * WHEEL_DIAMETER * PI;
+    float sameForwardOutput = SAME_FORWARD_KP * sameForwardInput;
+
+    move_left(forwardOutput + sameForwardOutput);
+    move_right(forwardOutput - sameForwardOutput);
+
+    // Serial.print("lEnc:" + String((int32_t)mbEnc.getCount()));
+    // Serial.print(" rEnc:" + String((int32_t)maEnc.getCount()));
+    // Serial.print(" Straight er:" + String(sameForwardInput, 2));
+    // Serial.print(" PID in:" + String(forwardInput, 2));
+    // Serial.print(" Pid er:" + String(forwardSetpoint - forwardInput, 2));
+    // Serial.println(" PID ou:" + String(forwardOutput, 2));
+    delay(2); // ensure loop takes longer than pid update rate
+  } while (abs(forwardSetpoint - forwardInput) > FORWARD_CUTOFF);
+  move_left(0);
+  move_right(0);
+}
+
 // based on encoder only, p to maintain same motor rotation amounts
 void turn_right_encoder()
 {
@@ -330,22 +359,23 @@ void loop()
   if (start_moving)
   {
     /*###### COMPETITION CODE GOES HERE ########*/
-    forward_half();
-    delay(200);
-    forward_half();
-    delay(200);
-    turn_right_encoder();
-    delay(200);
-    turn_right_encoder();
-    delay(200);
-    forward_half();
-    delay(200);
-    forward_half();
-    delay(200);
-    turn_left_encoder();
-    delay(200);
-    turn_left_encoder();
-    delay(200);
+    backward_half();
+    // forward_half();
+    // delay(200);
+    // forward_half();
+    // delay(200);
+    // turn_right_encoder();
+    // delay(200);
+    // turn_right_encoder();
+    // delay(200);
+    // forward_half();
+    // delay(200);
+    // forward_half();
+    // delay(200);
+    // turn_left_encoder();
+    // delay(200);
+    // turn_left_encoder();
+    // delay(200);
     start_moving = false;
   }
 }
