@@ -122,7 +122,7 @@ void move_right(float speed)
 void forward_half()
 {
   reset_encoders();
-  forwardSetpoint = 250.0;
+  forwardSetpoint = 254.8;
   do
   {
     forwardInput = (maEnc.getCount() + mbEnc.getCount()) / 2.0 / COUNTS_PER_REV * WHEEL_DIAMETER * PI;
@@ -180,7 +180,7 @@ void backward_half()
 void turn_right_encoder()
 {
   reset_encoders();
-  turnEncoderSetpoint = TRACK_WIDTH * PI / 4.0 - 4.4; // tuned
+  turnEncoderSetpoint = TRACK_WIDTH * PI / 4.0 - 4.4; // tuned,  4.4
 
   do
   {
@@ -359,23 +359,25 @@ void loop()
   if (start_moving)
   {
     /*###### COMPETITION CODE GOES HERE ########*/
-    backward_half();
-    // forward_half();
-    // delay(200);
-    // forward_half();
-    // delay(200);
-    // turn_right_encoder();
-    // delay(200);
-    // turn_right_encoder();
-    // delay(200);
-    // forward_half();
-    // delay(200);
-    // forward_half();
-    // delay(200);
-    // turn_left_encoder();
-    // delay(200);
-    // turn_left_encoder();
-    // delay(200);
+    forward_half();
+    delay(200);
+    forward_half();
+    delay(200);
+    forward_half();
+    delay(200);
+    turn_left_encoder();
+    delay(200);
+    forward_half();
+    delay(200);
+    forward_half();
+    delay(200);
+    turn_left_encoder();
+    delay(200);
+    forward_half();
+    delay(200);
+    forward_half();
+    delay(200);
+
     start_moving = false;
   }
 }
